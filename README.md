@@ -1,6 +1,6 @@
 # InsureDB
 
-A local insurance management website backed by PostgreSQL. It covers individual and corporate customers, four policy types, branches and staff, beneficiaries, payments, renewals, claims, investigations, and agent assignments.
+An insurance management website backed by PostgreSQL. It covers individual and corporate customers, four policy types, branches and staff, beneficiaries, payments, renewals, claims, investigations, and agent assignments.
 
 ## Run it
 
@@ -31,6 +31,17 @@ Run `npm test` for database integrity checks in a temporary database. Run `npm r
 
 For a second database GUI, `pgadmin-servers.json` contains the local PostgreSQL connection definition that can be imported into pgAdmin. It does not contain a password.
 
+## Deploy on Render
+
+1. Open [Deploy to Render](https://render.com/deploy?repo=https://github.com/rajatmurhe/InsureDB) and sign in to Render.
+2. Review the Blueprint. It creates the `insuredb` web service and `insuredb-db` PostgreSQL database on the free plan in Singapore.
+3. Set distinct `ADMIN_PASSWORD` and `VIEWER_PASSWORD` values of at least 16 characters when Render prompts. Keep them private. Render generates `SESSION_SECRET` and connects `DATABASE_URL` automatically.
+4. Select **Apply**. The start command creates the schema, adds fictional sample records, and starts the site. Open the URL shown for the web service and sign in as `viewer` to demonstrate the tables, or `admin` to edit records.
+
+The hosted login does not publish demo credentials. The viewer account can inspect all 20 insurance tables and reports but cannot change records. Uploaded claim files and sessions are kept in PostgreSQL so they survive web service restarts. Existing local demo users remain available only in local development.
+
+Render's free web service sleeps after 15 minutes of no traffic. Its free PostgreSQL database expires 30 days after creation and has no backups. Upgrade the database before then if you need to keep it online and retain its data. The free plan is suitable for a short-lived course demonstration.
+
 ## Prototype scope
 
-This is a local project demo. Claim files are stored in the local `uploads/` folder, which must be backed up along with PostgreSQL data. The demo login uses an in-memory session store and sample passwords, which should be replaced before deployment. Automated backups, field-level encryption, production availability, and jurisdiction-specific record retention are not configured. The PDF's non-functional targets of 99% uptime and 2–3 second loads are production targets, not guarantees for this local demo.
+All seeded customer and policy records are fictional. Automated backups, field-level encryption, production availability, and jurisdiction-specific record retention are not configured. The PDF's non-functional targets of 99% uptime and 2–3 second loads are production targets, not guarantees for this demo.
