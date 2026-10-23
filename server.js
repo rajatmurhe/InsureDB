@@ -1,18 +1,39 @@
-require('dotenv').config();
+if (!process.env.DATABASE_URL) require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
 const bcrypt = require('bcryptjs');
 const { Pool, types } = require('pg');
 const path = require('path');
 const crypto = require('crypto');
-const fs = require('fs/promises');
 const multer = require('multer');
 types.setTypeParser(1082, value => value);
 
 const app = express();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const uploadDirectory = path.join(__dirname, 'uploads');
 const documentUpload = multer({storage:multer.memoryStorage(),limits:{fileSize:5*1024*1024}}).single('file');
+const production = process.env.NODE_ENV === 'production';
+if (production && (!process.env.SESSION_SECRET || !process.env.ADMIN_PASSWORD || !process.env.VIEWER_PASSWORD)) {
+  throw new Error('SESSION_SECRET, ADMIN_PASSWORD, and VIEWER_PASSWORD are required in production.');
+}
+class PgSessionStore extends session.Store {
+  get(sid,callback) {
+    pool.query('SELECT sess FROM app_session WHERE sid=$1 AND expires_at>now()',[sid])
+      .then(({rows})=>callback(null,rows[0]?.sess||null)).catch(callback);
+  }
+  set(sid,value,callback) {
+    const expiry=value.cookie?.expires||new Date(Date.now()+8*60*60*1000);
+    pool.query(`INSERT INTO app_session(sid,sess,expires_at) VALUES ($1,$2,$3)
+      ON CONFLICT (sid) DO UPDATE SET sess=EXCLUDED.sess,expires_at=EXCLUDED.expires_at`,[sid,value,expiry])
+      .then(()=>callback()).catch(callback);
+  }
+  destroy(sid,callback) {
+    pool.query('DELETE FROM app_session WHERE sid=$1',[sid]).then(()=>callback()).catch(callback);
+  }
+  touch(sid,value,callback) {
+    const expiry=value.cookie?.expires||new Date(Date.now()+8*60*60*1000);
+    pool.query('UPDATE app_session SET expires_at=$2 WHERE sid=$1',[sid,expiry]).then(()=>callback()).catch(callback);
+  }
+}
 const tables = {
   customer: ['Customers','People'], individual_customer: ['Individuals','People'], corporate_customer: ['Corporates','People'],
   policy: ['Policies','Insurance'], life_insurance_policy: ['Life details','Insurance'], health_insurance_policy: ['Health details','Insurance'],
@@ -24,6 +45,7 @@ const tables = {
 };
 const roleAccess = {
   Admin: Object.keys(tables),
+  Viewer: Object.keys(tables),
   Employee: Object.keys(tables),
   Agent: ['customer','individual_customer','corporate_customer','policy','life_insurance_policy','health_insurance_policy','vehicle_insurance_policy','property_insurance_policy','beneficiary','payment','agent_assignment','agent','branch'],
   Underwriter: ['customer','individual_customer','corporate_customer','policy','life_insurance_policy','health_insurance_policy','vehicle_insurance_policy','property_insurance_policy','claim','claim_document','investigation','underwriter'],
@@ -37,8 +59,15 @@ const pk = name => ({individual_customer:'customer_id',corporate_customer:'custo
 const asyncRoute = fn => (req,res,next) => Promise.resolve(fn(req,res,next)).catch(next);
 
 app.use(express.json({limit:'1mb'}));
-app.use(session({secret:process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),resave:false,saveUninitialized:false,cookie:{httpOnly:true,sameSite:'lax',secure:false,maxAge:1000*60*60*8}}));
+if (production) app.set('trust proxy', 1);
+app.use(session({
+  store: production ? new PgSessionStore() : undefined,
+  secret:process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
+  resave:false,saveUninitialized:false,
+  cookie:{httpOnly:true,sameSite:'lax',secure:production,maxAge:1000*60*60*8}
+}));
 app.use(express.static(path.join(__dirname,'public')));
+app.get('/api/config',(req,res)=>res.json({demo:!production}));
 
 function requireUser(req,res,next) { if (!req.session.user) return res.status(401).json({error:'Please sign in.'}); next(); }
 function permitted(req,table) {
@@ -128,7 +157,8 @@ app.get('/api/table/:table',requireUser,asyncRoute(async(req,res)=>{
   const table=req.params.table;
   if(!permitted(req,table)) return res.status(403).json({error:'Table unavailable for this role.'});
   const sc=scope(req,table);
-  const {rows}=await pool.query(`SELECT * FROM ${q(table)}${sc.sql} ORDER BY ${q(pk(table))} DESC LIMIT 250`,sc.params);
+  const selection=table==='claim_document'?'document_id,claim_id,document_type,file_name,upload_date,storage_key,mime_type,EXISTS (SELECT 1 FROM claim_document_file f WHERE f.document_id=claim_document.document_id) AS has_file':'*';
+  const {rows}=await pool.query(`SELECT ${selection} FROM ${q(table)}${sc.sql} ORDER BY ${q(pk(table))} DESC LIMIT 250`,sc.params);
   res.json(rows);
 }));
 app.get('/api/options/:table',requireUser,asyncRoute(async(req,res)=>{
@@ -198,26 +228,28 @@ app.post('/api/claims/:id/documents',requireUser,(req,res,next)=>{
   const {rows:claims}=await pool.query('SELECT p.customer_id FROM claim c JOIN policy p ON p.policy_id=c.policy_id WHERE c.claim_id=$1',[claimId]);
   if(!claims.length) return res.status(404).json({error:'Claim not found.'});
   if(req.session.user.role==='Customer'&&claims[0].customer_id!==req.session.user.person_id) return res.status(403).json({error:'That claim is not yours.'});
-  await fs.mkdir(uploadDirectory,{recursive:true,mode:0o700});
-  const storageKey=crypto.randomUUID()+ext;
-  const storedPath=path.join(uploadDirectory,storageKey);
-  await fs.writeFile(storedPath,req.file.buffer,{mode:0o600});
+  const client=await pool.connect();
   try{
-    const {rows}=await pool.query('INSERT INTO claim_document(claim_id,document_type,file_name,storage_key,mime_type) VALUES ($1,$2,$3,$4,$5) RETURNING *',[claimId,req.body.document_type,req.file.originalname,storageKey,req.file.mimetype]);
-    res.status(201).json(rows[0]);
-  }catch(e){await fs.unlink(storedPath).catch(()=>{});throw e;}
+    await client.query('BEGIN');
+    const {rows}=await client.query('INSERT INTO claim_document(claim_id,document_type,file_name,mime_type) VALUES ($1,$2,$3,$4) RETURNING *',[claimId,req.body.document_type,req.file.originalname,req.file.mimetype]);
+    await client.query('INSERT INTO claim_document_file(document_id,content) VALUES ($1,$2)',[rows[0].document_id,req.file.buffer]);
+    await client.query('COMMIT');
+    res.status(201).json({...rows[0],has_file:true});
+  }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
 }));
 app.get('/api/documents/:id/download',requireUser,asyncRoute(async(req,res)=>{
   if(!permitted(req,'claim_document')) return res.status(403).json({error:'Unavailable.'});
-  const {rows}=await pool.query('SELECT d.*,p.customer_id FROM claim_document d JOIN claim c ON c.claim_id=d.claim_id JOIN policy p ON p.policy_id=c.policy_id WHERE d.document_id=$1',[req.params.id]);
+  const {rows}=await pool.query('SELECT d.*,f.content,p.customer_id FROM claim_document d LEFT JOIN claim_document_file f ON f.document_id=d.document_id JOIN claim c ON c.claim_id=d.claim_id JOIN policy p ON p.policy_id=c.policy_id WHERE d.document_id=$1',[req.params.id]);
   const doc=rows[0];
   if(!doc||req.session.user.role==='Customer'&&doc.customer_id!==req.session.user.person_id) return res.status(404).json({error:'Document not found.'});
   if(req.session.user.role==='Investigator') {
     const assigned=await pool.query('SELECT 1 FROM investigation WHERE claim_id=$1 AND investigator_id=$2',[doc.claim_id,req.session.user.person_id]);
     if(!assigned.rows.length) return res.status(404).json({error:'Document not found.'});
   }
-  if(!doc.storage_key||!/^[0-9a-f-]{36}\.(pdf|png|jpe?g)$/.test(doc.storage_key)) return res.status(404).json({error:'This sample document has no stored file.'});
-  res.download(path.join(uploadDirectory,doc.storage_key),doc.file_name);
+  if(!doc.content) return res.status(404).json({error:'This sample document has no stored file.'});
+  res.type(doc.mime_type||'application/octet-stream');
+  res.attachment(doc.file_name);
+  res.send(doc.content);
 }));
 app.get('/api/receipts/:id',requireUser,asyncRoute(async(req,res)=>{
   if(!permitted(req,'payment')) return res.status(403).send('Unavailable.');
@@ -322,17 +354,8 @@ app.patch('/api/table/:table/:id',requireUser,asyncRoute(async(req,res)=>{
 app.delete('/api/table/:table/:id',requireUser,asyncRoute(async(req,res)=>{
   const table=req.params.table;
   if(!abilities(req,table).canDelete) return res.status(403).json({error:'Deleting records is unavailable for this role.'});
-  let files=[];
-  if(table==='claim_document') {
-    const {rows}=await pool.query('SELECT storage_key FROM claim_document WHERE document_id=$1',[req.params.id]);
-    files=rows.map(x=>x.storage_key).filter(Boolean);
-  } else if(table==='claim') {
-    const {rows}=await pool.query('SELECT storage_key FROM claim_document WHERE claim_id=$1',[req.params.id]);
-    files=rows.map(x=>x.storage_key).filter(Boolean);
-  }
   const {rowCount}=await pool.query(`DELETE FROM ${q(table)} WHERE ${q(pk(table))}=$1`,[req.params.id]);
   if(!rowCount) return res.status(404).json({error:'Record not found.'});
-  await Promise.all(files.filter(x=>/^[0-9a-f-]{36}\.(pdf|png|jpe?g)$/.test(x)).map(x=>fs.unlink(path.join(uploadDirectory,x)).catch(()=>{})));
   res.json({ok:true});
 }));
 app.get('/api/dashboard',requireUser,asyncRoute(async(req,res)=>{
@@ -382,7 +405,7 @@ app.get('/api/dashboard',requireUser,asyncRoute(async(req,res)=>{
   res.json({...rows[0],recent:recent.rows});
 }));
 app.get('/api/reports',requireUser,asyncRoute(async(req,res)=>{
-  if(!['Admin','Employee'].includes(req.session.user.role)) return res.status(403).json({error:'Reports are available to administrators and employees.'});
+  if(!['Admin','Employee','Viewer'].includes(req.session.user.role)) return res.status(403).json({error:'Reports are unavailable for this role.'});
   const [types,status,claims,commissions]=await Promise.all([
     pool.query('SELECT policy_type AS label,count(*)::int AS count FROM policy GROUP BY policy_type ORDER BY policy_type'),
     pool.query('SELECT status AS label,count(*)::int AS count FROM policy GROUP BY status ORDER BY status'),

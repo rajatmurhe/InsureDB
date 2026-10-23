@@ -132,6 +132,10 @@ CREATE TABLE IF NOT EXISTS claim_document (
   storage_key varchar(100),
   mime_type varchar(120)
 );
+CREATE TABLE IF NOT EXISTS claim_document_file (
+  document_id integer PRIMARY KEY REFERENCES claim_document(document_id) ON DELETE CASCADE,
+  content bytea NOT NULL
+);
 CREATE TABLE IF NOT EXISTS investigation (
   investigation_id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   claim_id integer NOT NULL REFERENCES claim(claim_id),
@@ -152,10 +156,16 @@ CREATE TABLE IF NOT EXISTS app_user (
   user_id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   username varchar(80) NOT NULL UNIQUE,
   password_hash text NOT NULL,
-  role varchar(20) NOT NULL CHECK (role IN ('Admin','Employee','Agent','Underwriter','Investigator','Customer')),
+  role varchar(20) NOT NULL CHECK (role IN ('Admin','Employee','Agent','Underwriter','Investigator','Customer','Viewer')),
   person_id integer,
   display_name varchar(120) NOT NULL
 );
+CREATE TABLE IF NOT EXISTS app_session (
+  sid text PRIMARY KEY,
+  sess jsonb NOT NULL,
+  expires_at timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS app_session_expires_at_idx ON app_session(expires_at);
 
 CREATE OR REPLACE FUNCTION validate_beneficiary_share() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
@@ -254,6 +264,8 @@ CREATE TRIGGER claim_decision_check BEFORE UPDATE OF status ON claim FOR EACH RO
 
 ALTER TABLE claim_document ADD COLUMN IF NOT EXISTS storage_key varchar(100);
 ALTER TABLE claim_document ADD COLUMN IF NOT EXISTS mime_type varchar(120);
+ALTER TABLE app_user DROP CONSTRAINT IF EXISTS app_user_role_check;
+ALTER TABLE app_user ADD CONSTRAINT app_user_role_check CHECK (role IN ('Admin','Employee','Agent','Underwriter','Investigator','Customer','Viewer'));
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='claim_settlement_valid') THEN
     ALTER TABLE claim ADD CONSTRAINT claim_settlement_valid

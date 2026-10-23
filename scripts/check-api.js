@@ -41,7 +41,7 @@ async function main(){
     assert(claim.status===201,'Customer claim creation failed: '+JSON.stringify(claim.value));claimId=claim.value.claim_id;
     const form=new FormData();form.set('document_type','Verification');form.set('file',new Blob(['%PDF-1.4\n%%EOF'],{type:'application/pdf'}),'verify.pdf');
     const upload=await request(`/api/claims/${claimId}/documents`,{cookie:customer,method:'POST',form});
-    assert(upload.status===201&&upload.value.storage_key,'Claim file upload failed: '+JSON.stringify(upload.value));
+    assert(upload.status===201&&upload.value.has_file,'Claim file upload failed: '+JSON.stringify(upload.value));
     const download=await request(`/api/documents/${upload.value.document_id}/download`,{cookie:customer});
     assert(download.status===200&&download.value.includes('%PDF-1.4'),'Claim file download failed');
     const otherFile=await request(`/api/documents/${upload.value.document_id}/download`,{cookie:investigator});

@@ -1,4 +1,4 @@
-require('dotenv').config();
+if (!process.env.DATABASE_URL) require('dotenv').config();
 const fs=require('fs');
 const path=require('path');
 const {Client,types}=require('pg');
@@ -43,7 +43,7 @@ async function main(){
     const renewed=await db.query('SELECT premium_amount,end_date FROM policy WHERE policy_id=2');
     assert(Number(renewed.rows[0].premium_amount)===19000,'Renewal did not update the policy premium');
     assert(renewed.rows[0].end_date==='2028-02-09','Renewal did not extend the policy end date');
-    const {rows}=await db.query("SELECT count(*)::int n FROM information_schema.tables WHERE table_schema='public' AND table_name<>'app_user'");
+    const {rows}=await db.query("SELECT count(*)::int n FROM information_schema.tables WHERE table_schema='public' AND table_name NOT IN ('app_user','app_session','claim_document_file')");
     assert(rows[0].n===20,'Expected 20 insurance tables');
     console.log(`Database verification passed: ${assertions} checks.`);
   }finally{
