@@ -1,0 +1,7 @@
+node_modules/
+.env
+.pgdata/
+uploads/
+.DS_Store
+.claude/
+Insurance Management System.pdf
