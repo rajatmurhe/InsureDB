@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>InsureDB — Insurance Management System</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div id="login" class="login-screen hidden">
+    <div class="login-card">
+      <div class="login-mark">✦</div>
+      <div class="eyebrow">DATABASE PROJECT</div>
+      <h1>Welcome to <span>InsureDB.</span></h1>
+      <p>Insurance management, connected to PostgreSQL.</p>
+      <form id="login-form">
+        <label>Username<input name="username" value="admin" autocomplete="username" required></label>
+        <label>Password<input name="password" type="password" value="Demo@123" autocomplete="current-password" required></label>
+        <button class="primary full" type="submit">Sign in <span>→</span></button>
+      </form>
+      <div id="login-error" class="form-error"></div>
+      <div class="demo-note">Demo accounts: admin, employee, agent, underwriter, investigator, customer<br>All use <strong>Demo@123</strong></div>
+    </div>
+    <div class="login-art"><div class="art-circle one"></div><div class="art-circle two"></div><div class="art-content"><span class="art-kicker">YOUR INSURANCE DATA, IN FOCUS</span><div class="art-number">20<span>+</span></div><div class="art-line"></div><p>Connected tables for a complete<br>insurance workflow.</p></div></div>
+  </div>
+
+  <div id="app" class="app hidden">
+    <aside class="sidebar">
+      <div class="brand"><div class="brand-icon">✦</div><div>Insure<span>DB</span><small>MANAGEMENT SYSTEM</small></div></div>
+      <div class="side-label">WORKSPACE</div>
+      <button class="nav active" data-view="dashboard"><span class="nav-icon">▦</span> Overview</button>
+      <button class="nav" data-view="explorer"><span class="nav-icon">▤</span> Table explorer <span id="table-count" class="nav-count">20</span></button>
+      <button class="nav" data-view="reports"><span class="nav-icon">▥</span> Reports</button>
+      <div class="side-label data-label">DATA GROUPS</div>
+      <div id="group-nav"></div>
+      <div class="side-bottom"><div class="db-pill"><span class="live-dot"></span><div><b>PostgreSQL</b><small>Connected database</small></div></div><button id="logout" class="logout">Sign out ↗</button></div>
+    </aside>
+    <div class="main-shell">
+      <header class="topbar"><div class="breadcrumb"><span>Workspace</span><span class="slash">/</span><b id="breadcrumb">Overview</b></div><div class="top-right"><span class="top-date" id="today"></span><div class="user-chip"><span id="avatar">SA</span><div><b id="user-name">System Admin</b><small id="user-role">Admin</small></div></div></div></header>
+      <main id="content"></main>
+    </div>
+  </div>
+  <div id="modal-root"></div>
+  <div id="toast" class="toast hidden"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
