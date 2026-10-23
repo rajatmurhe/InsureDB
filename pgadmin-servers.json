@@ -1,0 +1,13 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "InsureDB (local)",
+      "Group": "Servers",
+      "Host": "localhost",
+      "Port": 5433,
+      "MaintenanceDB": "insurance_management",
+      "Username": "rajatmurhe",
+      "SSLMode": "prefer"
+    }
+  }
+}
